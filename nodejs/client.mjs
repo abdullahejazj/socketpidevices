@@ -1,101 +1,427 @@
+#!/usr/bin/env node
+import { execSync } from 'child_process';
 import WebSocket from 'ws';
-import os from 'os';
+import net from 'net';
 import fs from 'fs/promises';
-import process from 'process';
+import readline from 'readline';
+import { performance } from 'perf_hooks';
 
-class ClientMetrics {
-    constructor(testDuration) {
-        this.startTime = Date.now();
-        this.testDuration = testDuration * 60 * 1000;
-        this.ws = new WebSocket('ws://127.0.0.1:8080');
-        this.metrics = {
-            sentMessages: 0,
-            receivedMessages: 0,
-            latencies: [],
-            jitters: [],
-            lastLatency: 0,
-            errors: 0,
-            messageSizes: []
-        };
+// Enhanced Configuration
+const CONFIG = {
+  SERVER_IP: '127.0.0.1',
+  PORTS: { tcp: 8080, ws: 8081 },
+  TEST_MODES: [
+    { type: 'latency', durations: [5, 10, 30], sizes: [64, 1024, 10240] },
+    { type: 'throughput', durations: [10, 30], sizes: [102400, 1048576] }, // 100KB, 1MB
+    { type: 'jitter', durations: [30], sizes: [1024] }
+  ],
+  WARMUP: { iterations: 100, duration: 2000 },
+  MONITOR_INTERVAL: 500 // ms
+};
+
+class UltimateBenchmark {
+  constructor() {
+    this.results = {
+      system: this.getSystemSpecs(),
+      tests: []
+    };
+    this.currentTest = null;
+  }
+
+  // ========================
+  // SYSTEM MONITORING SECTION
+  // ========================
+
+  getSystemSpecs() {
+    return {
+      cpu: {
+        model: execSync('cat /proc/cpuinfo | grep "Model"').toString().trim(),
+        cores: execSync('nproc').toString().trim(),
+        freq: execSync('vcgencmd get_config arm_freq').toString().trim()
+      },
+      memory: execSync('free -h').toString().split('\n')[1],
+      os: execSync('cat /etc/os-release | grep PRETTY_NAME').toString().trim(),
+      network: execSync('iwconfig wlan0 | grep "Bit Rate"').toString().trim()
+    };
+  }
+
+  startMonitoring() {
+    this.monitorData = {
+      timestamps: [],
+      cpu: [], mem: [], temp: [],
+      net: { rx: [], tx: [] },
+      clock: []
+    };
+
+    this.monitorInterval = setInterval(() => {
+      const timestamp = Date.now();
+      this.monitorData.timestamps.push(timestamp);
+      
+      // CPU and Memory
+      const cpuMem = execSync(
+        "top -bn1 | awk '/Cpu\\(s\\):/ {printf \"%.1f\", 100-$8}' && " +
+        "free | awk '/Mem:/ {printf \" %.1f\", $3/$2*100}'"
+      ).toString().split(' ').map(parseFloat);
+      
+      this.monitorData.cpu.push(cpuMem[0]);
+      this.monitorData.mem.push(cpuMem[1]);
+
+      // Temperature and Throttling
+      const tempThrottle = execSync(
+        "vcgencmd measure_temp | cut -d= -f2 | cut -d\' -f1 && " +
+        "vcgencmd get_throttled"
+      ).toString().split('\n');
+      
+      this.monitorData.temp.push(parseFloat(tempThrottle[0]));
+      this.monitorData.clock.push(
+        parseInt(execSync('vcgencmd measure_clock arm').toString().split('=')[1])
+      );
+
+      // Network (bytes and packets)
+      const netStats = execSync(
+        "cat /proc/net/dev | grep wlan0 | awk '{print $2,$3,$10,$11}'"
+      ).toString().split(' ').map(Number);
+      
+      this.monitorData.net.rx.push({
+        bytes: netStats[0],
+        packets: netStats[1]
+      });
+      this.monitorData.net.tx.push({
+        bytes: netStats[2],
+        packets: netStats[3]
+      });
+    }, CONFIG.MONITOR_INTERVAL);
+  }
+
+  stopMonitoring() {
+    clearInterval(this.monitorInterval);
+    return this.analyzeMonitorData();
+  }
+
+  analyzeMonitorData() {
+    const duration = (this.monitorData.timestamps.length * CONFIG.MONITOR_INTERVAL) / 1000;
+    const netRxTotal = this.monitorData.net.rx.slice(-1)[0].bytes - this.monitorData.net.rx[0].bytes;
+    const netTxTotal = this.monitorData.net.tx.slice(-1)[0].bytes - this.monitorData.net.tx[0].bytes;
+
+    return {
+      cpu: this.calcStats(this.monitorData.cpu, '%'),
+      mem: this.calcStats(this.monitorData.mem, '%'),
+      temp: this.calcStats(this.monitorData.temp, '°C'),
+      clock: this.calcStats(this.monitorData.clock.map(c => c/1e6), 'MHz'),
+      network: {
+        rx_mbps: (netRxTotal * 8 / 1e6) / duration,
+        tx_mbps: (netTxTotal * 8 / 1e6) / duration,
+        pps: {
+          rx: (this.monitorData.net.rx.slice(-1)[0].packets - this.monitorData.net.rx[0].packets) / duration,
+          tx: (this.monitorData.net.tx.slice(-1)[0].packets - this.monitorData.net.tx[0].packets) / duration
+        }
+      },
+      throttling: this.checkThrottling()
+    };
+  }
+
+  checkThrottling() {
+    const throttled = parseInt(execSync('vcgencmd get_throttled').toString().split('=')[1]);
+    return {
+      under_voltage: !!(throttled & 0x1),
+      freq_capped: !!(throttled & 0x2),
+      throttled: !!(throttled & 0x4),
+      soft_temp_limit: !!(throttled & 0x8)
+    };
+  }
+
+  // =================
+  // TESTING SECTION
+  // =================
+
+  async runAllTests() {
+    for (const mode of CONFIG.TEST_MODES) {
+      for (const duration of mode.durations) {
+        for (const size of mode.sizes) {
+          this.currentTest = `${mode.type}_${size}_${duration}`;
+          console.log(`\nRunning ${this.currentTest}...`);
+          
+          const result = await this.runTest({
+            protocol: mode.protocol || 'tcp', // Default to TCP
+            type: mode.type,
+            durationSec: duration,
+            messageSize: size
+          });
+          
+          this.results.tests.push(result);
+          await this.cooldown();
+        }
+      }
+    }
+    await this.saveResults();
+  }
+
+  async runTest(params) {
+    // Warmup phase
+    await this[`${params.type}Warmup`](params);
+    
+    // Main test
+    this.startMonitoring();
+    const testData = {
+      timestamps: [],
+      latencies: [],
+      throughputs: []
+    };
+
+    const startTime = performance.now();
+    while ((performance.now() - startTime) < params.durationSec * 1000) {
+      const iterStart = performance.now();
+      
+      if (params.type === 'throughput') {
+        const bytesSent = await this.throughputIteration(params);
+        testData.throughputs.push(bytesSent / ((performance.now() - iterStart) / 1000));
+      } else {
+        const latency = await this.latencyIteration(params);
+        testData.latencies.push(latency);
+      }
+      
+      testData.timestamps.push(performance.now());
     }
 
-    async saveMetrics() {
-        const duration = (Date.now() - this.startTime) / 1000;
-        const stats = {
-            throughput: this.metrics.receivedMessages / duration,
-            packetLoss: ((this.metrics.sentMessages - this.metrics.receivedMessages) / 
-                       this.metrics.sentMessages) * 100,
-            avgLatency: this.metrics.latencies.reduce((a, b) => a + b, 0) / 
-                       this.metrics.latencies.length || 0,
-            avgJitter: this.metrics.jitters.reduce((a, b) => a + b, 0) / 
-                      this.metrics.jitters.length || 0
-        };
+    const metrics = this.stopMonitoring();
+    return {
+      ...params,
+      ...this.analyzeTestData(testData, params.type),
+      metrics,
+      timestamp: new Date().toISOString()
+    };
+  }
 
-        const result = {
-            testDuration: this.testDuration / 60000,
-            actualDuration: duration,
-            stats,
-            system: {
-                cpu: process.cpuUsage(),
-                memory: process.memoryUsage(),
-                load: os.loadavg()
-            },
-            rawMetrics: this.metrics
-        };
+  // =====================
+  // TEST IMPLEMENTATIONS
+  // =====================
 
-        await fs.writeFile(
-            `client_metrics_${this.testDuration}min.json`,
-            JSON.stringify(result, null, 2)
-        );
+  async latencyWarmup(params) {
+    const sock = params.protocol === 'tcp' ? 
+      new net.Socket() : 
+      new WebSocket(`ws://${CONFIG.SERVER_IP}:${CONFIG.PORTS.ws}`);
+    
+    if (params.protocol === 'tcp') {
+      sock.connect(CONFIG.PORTS.tcp, CONFIG.SERVER_IP);
+      await new Promise(resolve => sock.on('connect', resolve));
+    } else {
+      await new Promise(resolve => sock.on('open', resolve));
     }
 
-    startSending() {
-        this.interval = setInterval(() => {
-            if (this.ws.readyState === WebSocket.OPEN) {
-                const message = `TestMsg${this.metrics.sentMessages}|${Date.now()}`;
-                this.ws.send(message);
-                this.metrics.sentMessages++;
-                this.metrics.messageSizes.push(message.length);
-            }
-        }, 10); // 100 messages/second
+    for (let i = 0; i < CONFIG.WARMUP.iterations; i++) {
+      await new Promise(resolve => {
+        if (params.protocol === 'tcp') {
+          sock.write(Buffer.alloc(params.messageSize), resolve);
+          sock.once('data', () => {});
+        } else {
+          sock.send('x'.repeat(params.messageSize), resolve);
+          sock.once('message', () => {});
+        }
+      });
     }
 
-    async run() {
-        return new Promise((resolve) => {
-            this.ws.on('open', () => {
-                console.log('Connected to server');
-                this.startSending();
-                
-                setTimeout(async () => {
-                    clearInterval(this.interval);
-                    this.ws.close();
-                    await this.saveMetrics();
-                    resolve();
-                }, this.testDuration);
-            });
+    sock.destroy?.() || sock.close?.();
+  }
 
-            this.ws.on('message', (data) => {
-                const receiveTime = Date.now();
-                const serverTime = parseInt(data.toString().split('|')[1]);
-                const latency = receiveTime - serverTime;
-                
-                this.metrics.receivedMessages++;
-                this.metrics.latencies.push(latency);
-                
-                if (this.metrics.lastLatency > 0) {
-                    this.metrics.jitters.push(Math.abs(latency - this.metrics.lastLatency));
-                }
-                this.metrics.lastLatency = latency;
-            });
-
-            this.ws.on('error', (err) => {
-                this.metrics.errors++;
-                console.error('WebSocket error:', err);
-            });
+  async latencyIteration({ protocol, messageSize }) {
+    const start = performance.now();
+    
+    if (protocol === 'tcp') {
+      await new Promise(resolve => {
+        const sock = new net.Socket();
+        sock.connect(CONFIG.PORTS.tcp, CONFIG.SERVER_IP);
+        sock.write(Buffer.alloc(messageSize), () => {
+          sock.once('data', () => {
+            sock.end();
+            resolve();
+          });
         });
+      });
+    } else {
+      await new Promise(resolve => {
+        const ws = new WebSocket(`ws://${CONFIG.SERVER_IP}:${CONFIG.PORTS.ws}`);
+        ws.on('open', () => {
+          ws.send('x'.repeat(messageSize), () => {
+            ws.once('message', () => {
+              ws.close();
+              resolve();
+            });
+          });
+        });
+      });
     }
+    
+    return performance.now() - start;
+  }
+
+  async throughputWarmup(params) {
+    // Same as latency warmup but with larger buffer
+    await this.latencyWarmup(params);
+  }
+
+  async throughputIteration({ protocol, messageSize }) {
+    const chunkSize = 1024 * 1024; // 1MB chunks
+    const chunks = Math.ceil(messageSize / chunkSize);
+    const lastChunkSize = messageSize % chunkSize || chunkSize;
+
+    let totalSent = 0;
+    const start = performance.now();
+
+    if (protocol === 'tcp') {
+      const sock = new net.Socket();
+      sock.connect(CONFIG.PORTS.tcp, CONFIG.SERVER_IP);
+      await new Promise(resolve => sock.on('connect', resolve));
+
+      for (let i = 0; i < chunks; i++) {
+        const size = i === chunks - 1 ? lastChunkSize : chunkSize;
+        await new Promise(resolve => {
+          sock.write(Buffer.alloc(size), resolve);
+          sock.once('data', () => {});
+        });
+        totalSent += size;
+      }
+      sock.end();
+    } else {
+      const ws = new WebSocket(`ws://${CONFIG.SERVER_IP}:${CONFIG.PORTS.ws}`);
+      await new Promise(resolve => ws.on('open', resolve));
+
+      for (let i = 0; i < chunks; i++) {
+        const size = i === chunks - 1 ? lastChunkSize : chunkSize;
+        await new Promise(resolve => {
+          ws.send('x'.repeat(size), resolve);
+          ws.once('message', () => {});
+        });
+        totalSent += size;
+      }
+      ws.close();
+    }
+
+    return totalSent;
+  }
+
+  // =====================
+  // ANALYSIS & UTILITIES
+  // =====================
+
+  analyzeTestData(data, testType) {
+    const result = {};
+    
+    if (testType === 'throughput') {
+      result.throughput = {
+        avg_mbps: this.calcStats(data.throughputs.map(t => t * 8 / 1e6)).avg,
+        total_bytes: data.throughputs.reduce((a, b) => a + b, 0)
+      };
+    } else {
+      const cleanLatencies = this.removeOutliers(data.latencies);
+      result.latency = this.calcStats(cleanLatencies, 'ms');
+      
+      if (testType === 'jitter') {
+        result.jitter = this.calculateJitter(cleanLatencies);
+      }
+    }
+    
+    return result;
+  }
+
+  calculateJitter(latencies) {
+    const diffs = [];
+    for (let i = 1; i < latencies.length; i++) {
+      diffs.push(Math.abs(latencies[i] - latencies[i-1]));
+    }
+    return this.calcStats(diffs, 'ms');
+  }
+
+  calcStats(values, unit = '') {
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    const sorted = [...values].sort((a, b) => a - b);
+    
+    return {
+      avg: parseFloat(avg.toFixed(2)),
+      min: parseFloat(sorted[0].toFixed(2)),
+      max: parseFloat(sorted[sorted.length - 1].toFixed(2)),
+      p50: parseFloat(sorted[Math.floor(sorted.length * 0.5)].toFixed(2)),
+      p95: parseFloat(sorted[Math.floor(sorted.length * 0.95)].toFixed(2)),
+      p99: parseFloat(sorted[Math.floor(sorted.length * 0.99)].toFixed(2)),
+      std: parseFloat(
+        Math.sqrt(values.map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b) / values.length
+      ).toFixed(2)),
+      unit
+    };
+  }
+
+  removeOutliers(values) {
+    if (values.length < 10) return values;
+    const q1 = this.percentile(values, 25);
+    const q3 = this.percentile(values, 75);
+    const iqr = q3 - q1;
+    return values.filter(x => 
+      x >= q1 - 1.5*iqr && 
+      x <= q3 + 1.5*iqr
+    );
+  }
+
+  percentile(arr, p) {
+    const sorted = [...arr].sort((a, b) => a - b);
+    const pos = (sorted.length - 1) * p / 100;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    return sorted[base] + (rest * (sorted[base + 1] - sorted[base]));
+  }
+
+  async cooldown() {
+    console.log('Cooling down...');
+    await new Promise(resolve => setTimeout(resolve, CONFIG.WARMUP.duration));
+  }
+
+  async saveResults() {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `benchmark_results_${timestamp}.json`;
+    await fs.writeFile(filename, JSON.stringify(this.results, null, 2));
+    console.log(`Results saved to ${filename}`);
+  }
+
+  async menu() {
+    console.clear();
+    console.log('=== Ultimate Raspberry Pi Network Benchmark ===');
+    console.log(`Target Server: ${CONFIG.SERVER_IP}`);
+    console.log('1) Run Complete Test Suite');
+    console.log('2) Configure Server IP');
+    console.log('3) Exit');
+
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    const choice = await new Promise(resolve => rl.question('Select option: ', resolve));
+    rl.close();
+
+    switch (choice) {
+      case '1':
+        await this.runAllTests();
+        break;
+      case '2':
+        CONFIG.SERVER_IP = await new Promise(resolve => {
+          const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+          });
+          rl.question('Enter new server IP: ', (ip) => {
+            rl.close();
+            resolve(ip);
+          });
+        });
+        break;
+      case '3':
+        process.exit(0);
+      default:
+        console.log('Invalid choice');
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    this.menu();
+  }
 }
 
-const duration = parseInt(process.argv[2]) || 2;
-const client = new ClientMetrics(duration);
-client.run().catch(console.error);
+// Run the benchmark
+new UltimateBenchmark().menu().catch(console.error);

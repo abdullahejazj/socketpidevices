@@ -1,81 +1,140 @@
+#!/usr/bin/env node
+import net from 'net';
 import { WebSocketServer } from 'ws';
+import http from 'http';
 import os from 'os';
-import fs from 'fs/promises';
-import process from 'process';
+import { execSync } from 'child_process';
 
-class MetricsCollector {
-    constructor(testDuration) {
-        this.startTime = Date.now();
-        this.testDuration = testDuration * 60 * 1000;
-        this.metrics = {
-            connections: 0,
-            messagesReceived: 0,
-            messagesSent: 0,
-            latencies: [],
-            messageSizes: []
-        };
-    }
+class SocketServer {
+  constructor() {
+    this.stats = {
+      startTime: new Date(),
+      connections: {
+        tcp: 0,
+        ws: 0,
+        total: 0
+      },
+      metrics: {
+        bytesReceived: 0,
+        bytesSent: 0,
+        packetsReceived: 0,
+        packetsSent: 0
+      }
+    };
 
-    async saveMetrics() {
-        const duration = (Date.now() - this.startTime) / 1000;
-        const summary = {
-            testDuration: this.testDuration / 60000,
-            actualDuration: duration,
-            ...this.metrics,
-            system: {
-                cpu: process.cpuUsage(),
-                memory: process.memoryUsage(),
-                load: os.loadavg()
-            }
-        };
+    // Start TCP Server
+    this.tcpServer = net.createServer(socket => {
+      this.stats.connections.tcp++;
+      this.stats.connections.total++;
 
-        await fs.writeFile(
-            `server_metrics_${this.testDuration}min.json`,
-            JSON.stringify(summary, null, 2)
-        );
-    }
-}
+      socket.on('data', data => {
+        this.stats.metrics.bytesReceived += data.length;
+        this.stats.metrics.packetsReceived++;
+        socket.write(data); // Echo back
+        this.stats.metrics.bytesSent += data.length;
+        this.stats.metrics.packetsSent++;
+      });
 
-const startServer = async (testDuration) => {
-    const metrics = new MetricsCollector(testDuration);
-    const server = new WebSocketServer({ port: 8080 });
+      socket.on('close', () => {
+        this.stats.connections.tcp--;
+        this.stats.connections.total--;
+      });
+    }).listen(8080, '0.0.0.0');
 
-    server.on('connection', (ws) => {
-        metrics.metrics.connections++;
-        
-        ws.on('message', (data) => {
-            const receiveTime = Date.now();
-            const message = data.toString();
-            const [payload, sendTime] = message.split('|');
-            
-            metrics.metrics.messagesReceived++;
-            metrics.metrics.messageSizes.push(data.length);
-            
-            // Calculate latency
-            const latency = receiveTime - parseInt(sendTime);
-            metrics.metrics.latencies.push(latency);
-            
-            // Send response
-            const response = `${payload}|${receiveTime}`;
-            ws.send(response);
-            metrics.metrics.messagesSent++;
-        });
-
-        ws.on('close', () => {
-            metrics.metrics.connections--;
-        });
+    // HTTP Server for WebSocket and metrics
+    this.httpServer = http.createServer((req, res) => {
+      if (req.url === '/metrics') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(this.getMetrics(), null, 2));
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
     });
 
-    console.log(`WebSocket server running for ${testDuration} minutes...`);
-    
-    setTimeout(async () => {
-        server.close();
-        await metrics.saveMetrics();
-        console.log('Server stopped and metrics saved');
-        process.exit(0);
-    }, metrics.testDuration);
-};
+    // WebSocket Server (updated initialization)
+    this.wsServer = new WebSocketServer({ server: this.httpServer });
+    this.wsServer.on('connection', ws => {
+      this.stats.connections.ws++;
+      this.stats.connections.total++;
 
-// Get duration from command line or default to 2 minutes
-const duration = parseInt(process.argv[2]) || 2;
-startServer(duration).catch(console.error);
+      ws.on('message', message => {
+        const msgString = message.toString();
+        this.stats.metrics.bytesReceived += Buffer.byteLength(msgString);
+        this.stats.metrics.packetsReceived++;
+        ws.send(msgString); // Echo back
+        this.stats.metrics.bytesSent += Buffer.byteLength(msgString);
+        this.stats.metrics.packetsSent++;
+      });
+
+      ws.on('close', () => {
+        this.stats.connections.ws--;
+        this.stats.connections.total--;
+      });
+    });
+
+    this.httpServer.listen(8081, '0.0.0.0');
+  }
+
+  getMetrics() {
+    return {
+      uptime: process.uptime(),
+      connections: this.stats.connections,
+      throughput: {
+        bytes_per_sec: {
+          in: this.stats.metrics.bytesReceived / process.uptime(),
+          out: this.stats.metrics.bytesSent / process.uptime()
+        },
+        packets_per_sec: {
+          in: this.stats.metrics.packetsReceived / process.uptime(),
+          out: this.stats.metrics.packetsSent / process.uptime()
+        }
+      },
+      system: {
+        load: os.loadavg(),
+        memory: {
+          free: os.freemem(),
+          total: os.totalmem()
+        },
+        cpu: {
+          model: os.cpus()[0].model,
+          speed: os.cpus()[0].speed
+        },
+        temperature: this.getCPUTemperature()
+      }
+    };
+  }
+
+  getCPUTemperature() {
+    try {
+      if (process.platform === 'linux') {
+        const temp = execSync('vcgencmd measure_temp').toString();
+        return parseFloat(temp.match(/\d+\.\d+/)[0]);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+// Start server with monitoring
+new SocketServer();
+
+console.log(`
+  ███████╗███████╗██████╗ ██╗   ██╗███████╗██████╗ 
+  ██╔════╝██╔════╝██╔══██╗██║   ██║██╔════╝██╔══██╗
+  ███████╗█████╗  ██████╔╝██║   ██║█████╗  ██████╔╝
+  ╚════██║██╔══╝  ██╔══██╗╚██╗ ██╔╝██╔══╝  ██╔══██╗
+  ███████║███████╗██║  ██║ ╚████╔╝ ███████╗██║  ██║
+  ╚══════╝╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚══════╝╚═╝  ╚═╝
+  
+  TCP Server running on port 8080
+  WebSocket Server running on port 8081
+  Metrics available at http://[YOUR_IP]:8081/metrics
+`);
+
+process.on('SIGINT', () => {
+  console.log('\nServer shutting down gracefully...');
+  process.exit();
+});
