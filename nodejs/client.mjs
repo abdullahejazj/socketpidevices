@@ -6,17 +6,18 @@ import fs from 'fs/promises';
 import readline from 'readline';
 import { performance } from 'perf_hooks';
 
-// Enhanced Configuration
+// Configuration
 const CONFIG = {
-  SERVER_IP: '127.0.0.1',
+  SERVER_IP: '10.120.233.229',
   PORTS: { tcp: 8080, ws: 8081 },
   TEST_MODES: [
     { type: 'latency', durations: [5, 10, 30], sizes: [64, 1024, 10240] },
-    { type: 'throughput', durations: [10, 30], sizes: [102400, 1048576] }, // 100KB, 1MB
+    { type: 'throughput', durations: [10, 30], sizes: [102400, 1048576] },
     { type: 'jitter', durations: [30], sizes: [1024] }
   ],
   WARMUP: { iterations: 100, duration: 2000 },
-  MONITOR_INTERVAL: 500 // ms
+  MONITOR_INTERVAL: 500,
+  MAX_LISTENERS: 20
 };
 
 class UltimateBenchmark {
@@ -26,23 +27,26 @@ class UltimateBenchmark {
       tests: []
     };
     this.currentTest = null;
+    this.activeConnections = new Set();
   }
 
-  // ========================
-  // SYSTEM MONITORING SECTION
-  // ========================
-
+  // System Monitoring
   getSystemSpecs() {
-    return {
-      cpu: {
-        model: execSync('cat /proc/cpuinfo | grep "Model"').toString().trim(),
-        cores: execSync('nproc').toString().trim(),
-        freq: execSync('vcgencmd get_config arm_freq').toString().trim()
-      },
-      memory: execSync('free -h').toString().split('\n')[1],
-      os: execSync('cat /etc/os-release | grep PRETTY_NAME').toString().trim(),
-      network: execSync('iwconfig wlan0 | grep "Bit Rate"').toString().trim()
-    };
+    try {
+      return {
+        cpu: {
+          model: execSync('cat /proc/cpuinfo | grep "Model"').toString().trim(),
+          cores: execSync('nproc').toString().trim(),
+          freq: execSync('vcgencmd get_config arm_freq').toString().trim()
+        },
+        memory: execSync('free -h').toString().split('\n')[1],
+        os: execSync('cat /etc/os-release | grep PRETTY_NAME').toString().trim(),
+        network: execSync('iwconfig wlan0 | grep "Bit Rate"').toString().trim()
+      };
+    } catch (err) {
+      console.error('Error getting system specs:', err);
+      return {};
+    }
   }
 
   startMonitoring() {
@@ -54,42 +58,46 @@ class UltimateBenchmark {
     };
 
     this.monitorInterval = setInterval(() => {
-      const timestamp = Date.now();
-      this.monitorData.timestamps.push(timestamp);
-      
-      // CPU and Memory
-      const cpuMem = execSync(
-        "top -bn1 | awk '/Cpu\\(s\\):/ {printf \"%.1f\", 100-$8}' && " +
-        "free | awk '/Mem:/ {printf \" %.1f\", $3/$2*100}'"
-      ).toString().split(' ').map(parseFloat);
-      
-      this.monitorData.cpu.push(cpuMem[0]);
-      this.monitorData.mem.push(cpuMem[1]);
+      try {
+        const timestamp = Date.now();
+        this.monitorData.timestamps.push(timestamp);
+        
+        // CPU and Memory
+        const cpuMem = execSync(
+          "top -bn1 | awk '/Cpu\\(s\\):/ {printf \"%.1f\", 100-$8}' && " +
+          "free | awk '/Mem:/ {printf \" %.1f\", $3/$2*100}'"
+        ).toString().split(' ').map(parseFloat);
+        
+        this.monitorData.cpu.push(cpuMem[0]);
+        this.monitorData.mem.push(cpuMem[1]);
 
-      // Temperature and Throttling
-      const tempThrottle = execSync(
-        "vcgencmd measure_temp | cut -d= -f2 | cut -d\' -f1 && " +
-        "vcgencmd get_throttled"
-      ).toString().split('\n');
-      
-      this.monitorData.temp.push(parseFloat(tempThrottle[0]));
-      this.monitorData.clock.push(
-        parseInt(execSync('vcgencmd measure_clock arm').toString().split('=')[1])
-      );
+        // Temperature and Clock
+        const tempThrottle = execSync(
+          "vcgencmd measure_temp | cut -d= -f2 | cut -d\' -f1 && " +
+          "vcgencmd get_throttled"
+        ).toString().split('\n');
+        
+        this.monitorData.temp.push(parseFloat(tempThrottle[0]));
+        this.monitorData.clock.push(
+          parseInt(execSync('vcgencmd measure_clock arm').toString().split('=')[1])
+        );
 
-      // Network (bytes and packets)
-      const netStats = execSync(
-        "cat /proc/net/dev | grep wlan0 | awk '{print $2,$3,$10,$11}'"
-      ).toString().split(' ').map(Number);
-      
-      this.monitorData.net.rx.push({
-        bytes: netStats[0],
-        packets: netStats[1]
-      });
-      this.monitorData.net.tx.push({
-        bytes: netStats[2],
-        packets: netStats[3]
-      });
+        // Network
+        const netStats = execSync(
+          "cat /proc/net/dev | grep wlan0 | awk '{print $2,$3,$10,$11}'"
+        ).toString().split(' ').map(Number);
+        
+        this.monitorData.net.rx.push({
+          bytes: netStats[0],
+          packets: netStats[1]
+        });
+        this.monitorData.net.tx.push({
+          bytes: netStats[2],
+          packets: netStats[3]
+        });
+      } catch (err) {
+        console.error('Monitoring error:', err);
+      }
     }, CONFIG.MONITOR_INTERVAL);
   }
 
@@ -121,19 +129,20 @@ class UltimateBenchmark {
   }
 
   checkThrottling() {
-    const throttled = parseInt(execSync('vcgencmd get_throttled').toString().split('=')[1]);
-    return {
-      under_voltage: !!(throttled & 0x1),
-      freq_capped: !!(throttled & 0x2),
-      throttled: !!(throttled & 0x4),
-      soft_temp_limit: !!(throttled & 0x8)
-    };
+    try {
+      const throttled = parseInt(execSync('vcgencmd get_throttled').toString().split('=')[1]);
+      return {
+        under_voltage: !!(throttled & 0x1),
+        freq_capped: !!(throttled & 0x2),
+        throttled: !!(throttled & 0x4),
+        soft_temp_limit: !!(throttled & 0x8)
+      };
+    } catch {
+      return {};
+    }
   }
 
-  // =================
-  // TESTING SECTION
-  // =================
-
+  // Test Execution
   async runAllTests() {
     for (const mode of CONFIG.TEST_MODES) {
       for (const duration of mode.durations) {
@@ -142,7 +151,7 @@ class UltimateBenchmark {
           console.log(`\nRunning ${this.currentTest}...`);
           
           const result = await this.runTest({
-            protocol: mode.protocol || 'tcp', // Default to TCP
+            protocol: mode.protocol || 'tcp',
             type: mode.type,
             durationSec: duration,
             messageSize: size
@@ -157,10 +166,8 @@ class UltimateBenchmark {
   }
 
   async runTest(params) {
-    // Warmup phase
     await this[`${params.type}Warmup`](params);
     
-    // Main test
     this.startMonitoring();
     const testData = {
       timestamps: [],
@@ -192,35 +199,37 @@ class UltimateBenchmark {
     };
   }
 
-  // =====================
-  // TEST IMPLEMENTATIONS
-  // =====================
-
+  // Protocol Implementations
   async latencyWarmup(params) {
     const sock = params.protocol === 'tcp' ? 
       new net.Socket() : 
       new WebSocket(`ws://${CONFIG.SERVER_IP}:${CONFIG.PORTS.ws}`);
     
-    if (params.protocol === 'tcp') {
-      sock.connect(CONFIG.PORTS.tcp, CONFIG.SERVER_IP);
-      await new Promise(resolve => sock.on('connect', resolve));
-    } else {
-      await new Promise(resolve => sock.on('open', resolve));
-    }
+    sock.setMaxListeners(CONFIG.MAX_LISTENERS);
+    this.activeConnections.add(sock);
 
-    for (let i = 0; i < CONFIG.WARMUP.iterations; i++) {
-      await new Promise(resolve => {
-        if (params.protocol === 'tcp') {
-          sock.write(Buffer.alloc(params.messageSize), resolve);
-          sock.once('data', () => {});
-        } else {
-          sock.send('x'.repeat(params.messageSize), resolve);
-          sock.once('message', () => {});
-        }
-      });
-    }
+    try {
+      if (params.protocol === 'tcp') {
+        sock.connect(CONFIG.PORTS.tcp, CONFIG.SERVER_IP);
+        await new Promise(resolve => sock.on('connect', resolve));
+      } else {
+        await new Promise(resolve => sock.on('open', resolve));
+      }
 
-    sock.destroy?.() || sock.close?.();
+      for (let i = 0; i < CONFIG.WARMUP.iterations; i++) {
+        await new Promise(resolve => {
+          if (params.protocol === 'tcp') {
+            sock.write(Buffer.alloc(params.messageSize), resolve);
+            sock.once('data', () => {});
+          } else {
+            sock.send('x'.repeat(params.messageSize), resolve);
+            sock.once('message', () => {});
+          }
+        });
+      }
+    } finally {
+      this.cleanupConnection(sock);
+    }
   }
 
   async latencyIteration({ protocol, messageSize }) {
@@ -229,80 +238,113 @@ class UltimateBenchmark {
     if (protocol === 'tcp') {
       await new Promise(resolve => {
         const sock = new net.Socket();
-        sock.connect(CONFIG.PORTS.tcp, CONFIG.SERVER_IP);
-        sock.write(Buffer.alloc(messageSize), () => {
-          sock.once('data', () => {
-            sock.end();
-            resolve();
+        sock.setMaxListeners(CONFIG.MAX_LISTENERS);
+        this.activeConnections.add(sock);
+
+        const cleanup = () => {
+          this.cleanupConnection(sock);
+          resolve();
+        };
+
+        sock.on('connect', () => {
+          sock.write(Buffer.alloc(messageSize), () => {
+            sock.once('data', cleanup);
           });
         });
+
+        sock.on('error', cleanup);
+        sock.connect(CONFIG.PORTS.tcp, CONFIG.SERVER_IP);
       });
     } else {
       await new Promise(resolve => {
         const ws = new WebSocket(`ws://${CONFIG.SERVER_IP}:${CONFIG.PORTS.ws}`);
+        ws.setMaxListeners(CONFIG.MAX_LISTENERS);
+        this.activeConnections.add(ws);
+
+        const cleanup = () => {
+          this.cleanupConnection(ws);
+          resolve();
+        };
+
         ws.on('open', () => {
           ws.send('x'.repeat(messageSize), () => {
-            ws.once('message', () => {
-              ws.close();
-              resolve();
-            });
+            ws.once('message', cleanup);
           });
         });
+
+        ws.on('error', cleanup);
       });
     }
     
     return performance.now() - start;
   }
 
-  async throughputWarmup(params) {
-    // Same as latency warmup but with larger buffer
-    await this.latencyWarmup(params);
-  }
-
   async throughputIteration({ protocol, messageSize }) {
-    const chunkSize = 1024 * 1024; // 1MB chunks
+    const chunkSize = 1024 * 1024;
     const chunks = Math.ceil(messageSize / chunkSize);
     const lastChunkSize = messageSize % chunkSize || chunkSize;
-
     let totalSent = 0;
-    const start = performance.now();
 
     if (protocol === 'tcp') {
       const sock = new net.Socket();
-      sock.connect(CONFIG.PORTS.tcp, CONFIG.SERVER_IP);
-      await new Promise(resolve => sock.on('connect', resolve));
+      sock.setMaxListeners(CONFIG.MAX_LISTENERS);
+      this.activeConnections.add(sock);
 
-      for (let i = 0; i < chunks; i++) {
-        const size = i === chunks - 1 ? lastChunkSize : chunkSize;
-        await new Promise(resolve => {
-          sock.write(Buffer.alloc(size), resolve);
-          sock.once('data', () => {});
-        });
-        totalSent += size;
+      try {
+        sock.connect(CONFIG.PORTS.tcp, CONFIG.SERVER_IP);
+        await new Promise(resolve => sock.on('connect', resolve));
+
+        for (let i = 0; i < chunks; i++) {
+          const size = i === chunks - 1 ? lastChunkSize : chunkSize;
+          await new Promise(resolve => {
+            sock.write(Buffer.alloc(size), resolve);
+            sock.once('data', () => {});
+          });
+          totalSent += size;
+        }
+      } finally {
+        this.cleanupConnection(sock);
       }
-      sock.end();
     } else {
       const ws = new WebSocket(`ws://${CONFIG.SERVER_IP}:${CONFIG.PORTS.ws}`);
-      await new Promise(resolve => ws.on('open', resolve));
+      ws.setMaxListeners(CONFIG.MAX_LISTENERS);
+      this.activeConnections.add(ws);
 
-      for (let i = 0; i < chunks; i++) {
-        const size = i === chunks - 1 ? lastChunkSize : chunkSize;
-        await new Promise(resolve => {
-          ws.send('x'.repeat(size), resolve);
-          ws.once('message', () => {});
-        });
-        totalSent += size;
+      try {
+        await new Promise(resolve => ws.on('open', resolve));
+
+        for (let i = 0; i < chunks; i++) {
+          const size = i === chunks - 1 ? lastChunkSize : chunkSize;
+          await new Promise(resolve => {
+            ws.send('x'.repeat(size), resolve);
+            ws.once('message', () => {});
+          });
+          totalSent += size;
+        }
+      } finally {
+        this.cleanupConnection(ws);
       }
-      ws.close();
     }
 
     return totalSent;
   }
 
-  // =====================
-  // ANALYSIS & UTILITIES
-  // =====================
+  cleanupConnection(conn) {
+    try {
+      if (conn instanceof net.Socket) {
+        conn.removeAllListeners();
+        conn.destroy();
+      } else if (conn instanceof WebSocket) {
+        conn.removeAllListeners();
+        conn.terminate();
+      }
+      this.activeConnections.delete(conn);
+    } catch (err) {
+      console.error('Cleanup error:', err);
+    }
+  }
 
+  // Analysis Utilities
   analyzeTestData(data, testType) {
     const result = {};
     
@@ -332,6 +374,8 @@ class UltimateBenchmark {
   }
 
   calcStats(values, unit = '') {
+    if (!values.length) return { avg: 0, min: 0, max: 0, unit };
+    
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
     const sorted = [...values].sort((a, b) => a - b);
     

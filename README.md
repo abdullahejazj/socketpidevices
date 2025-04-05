@@ -4,12 +4,12 @@ This project evaluates the real-time performance of socket communication on a Ra
 
 ## 🏗️ **Project Structure**
 ```plaintext
-├── nodejs_server.js     # Node.js WebSocket Server
-├── nodejs_client.js     # Node.js WebSocket Client
-├── python_server.py     # Python Async Socket Server
-├── python_client.py     # Python Async Socket Client
-├── README.md            # Documentation
-└── results/             # CSV files with test results
+├── server.js     # Node.js Socket Server
+├── client.js     # Node.js Socket Client
+├── server.py     # Python Async Socket Server
+├── client.py     # Python Async Socket Client
+├── README.md     # Documentation
+└── results/      # CSV files with test results
 ```
 
 ## 📋 **Test Scenarios**
@@ -28,62 +28,91 @@ Each test measures:
 - ✅ **Memory Usage** – RAM utilization during test  
 - ✅ **Message Size Variation** – Small (64B), Medium (1KB), Large (10KB)  
 - ✅ **Different Message Intervals** – 10ms, 50ms, 100ms  
+- ✅ **Concurrent Clients** – Test with multiple clients  
+- ✅ **Network Conditions** – LAN vs. WiFi impact  
 
 ## 🚀 **Installation & Setup**
+
 ### **1️⃣ Install Dependencies**
-#### Node.js Environment
-Ensure you have Node.js installed. Then, install required packages:
+#### **Node.js Environment**
+Ensure you have Node.js installed.
 ```sh
-npm install ws
+sudo apt update && sudo apt install -y nodejs npm
 ```
-#### Python Environment
+Install required packages:
+```sh
+npm install net
+```
+
+#### **Python Environment**
 Ensure you have Python 3 installed. Install dependencies using:
 ```sh
+sudo apt update && sudo apt install -y python3 python3-pip
 pip install asyncio psutil
 ```
 
-### **2️⃣ Run Tests**
+### **2️⃣ Set Up the Raspberry Pi for Testing**
+1. Ensure your Raspberry Pi is connected to a **stable network** (Ethernet or WiFi).
+2. Set up a directory for the project:
+   ```sh
+   mkdir socket_test && cd socket_test
+   ```
+3. Clone or download this repository:
+   ```sh
+   git clone <repository_url>
+   cd <repository_folder>
+   ```
+
+### **3️⃣ Run Tests**
 #### **Test 1: Node.js Server & Node.js Client**
-Start the server:
-```sh
-node nodejs_server.js
-```
-Start the client:
-```sh
-node nodejs_client.js
-```
+1. Start the **Node.js server**:
+   ```sh
+   node server.js
+   ```
+2. Start the **Node.js client** in another terminal:
+   ```sh
+   node client.js
+   ```
 
 #### **Test 2: Python Server & Python Client**
-Start the server:
-```sh
-python python_server.py
-```
-Start the client:
-```sh
-python python_client.py
-```
+1. Start the **Python server**:
+   ```sh
+   python3 server.py
+   ```
+2. Start the **Python client** in another terminal:
+   ```sh
+   python3 client.py
+   ```
 
 #### **Test 3: Node.js Server & Python Client**
-Start the Node.js server:
-```sh
-node nodejs_server.js
-```
-Start the Python client:
-```sh
-python python_client.py
-```
+1. Start the **Node.js server**:
+   ```sh
+   node server.js
+   ```
+2. Start the **Python client**:
+   ```sh
+   python3 client.py
+   ```
 
-## 📁 **Results**
-Test results are saved in CSV files under the `results/` directory:
-- **`nodejs_test_results.csv`**
-- **`python_test_results.csv`**
-- **`cross_platform_test_results.csv`**
+### **4️⃣ Saving Test Results**
+- The test results are automatically logged and stored in CSV files under the `results/` directory:
+  - **`nodejs_test_results.csv`**
+  - **`python_test_results.csv`**
+  - **`cross_platform_test_results.csv`**
 
-## 📈 **Next Steps**
-- 📊 Visualize test results using Matplotlib
-- 🌐 Test under WiFi vs. Ethernet
-- 🤹 Vary the number of concurrent clients
-- ⚡ Optimize performance for real-world applications
+### **5️⃣ Analyzing Performance Data**
+1. Open the results directory:
+   ```sh
+   cd results
+   ```
+2. View the contents of a CSV file:
+   ```sh
+   cat nodejs_test_results.csv
+   ```
+3. Optionally, use Python to generate plots from the data:
+   ```sh
+   python3 analyze_results.py
+   ```
 
 ## 🤝 **Contributions**
 Feel free to open an issue or submit a pull request if you'd like to improve this project!
