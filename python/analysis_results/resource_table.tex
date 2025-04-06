@@ -1,0 +1,21 @@
+\begin{table}[htbp]
+\caption{System resource usage during tests}
+\label{tab:resource_usage}
+\begin{tabular}{lllllllllll}
+\toprule
+ &  & \multicolumn{3}{r}{cpu_avg} & \multicolumn{3}{r}{mem_avg} & \multicolumn{3}{r}{temp_avg} \\
+ & duration & 5 & 10 & 30 & 5 & 10 & 30 & 5 & 10 & 30 \\
+type & size_label &  &  &  &  &  &  &  &  &  \\
+\midrule
+jitter & 1KB & - & - & 28.8 & - & - & 12.0 & - & - & 59.1 \\
+\cline{1-11}
+\multirow[t]{3}{*}{latency} & 64B & 28.2 & 28.4 & 28.7 & 11.9 & 12.0 & 12.0 & 58.8 & 58.9 & 58.9 \\
+ & 1KB & 28.3 & 28.5 & 28.9 & 11.9 & 12.0 & 12.0 & 58.9 & 58.9 & 59.0 \\
+ & 10KB & 28.4 & 28.6 & 29.0 & 12.0 & 12.0 & 12.0 & 58.9 & 58.9 & 59.0 \\
+\cline{1-11}
+\multirow[t]{2}{*}{throughput} & 100KB & - & 28.9 & 28.8 & - & 12.0 & 12.0 & - & 59.1 & 59.1 \\
+ & 1MB & - & 28.9 & 28.7 & - & 12.0 & 12.0 & - & 59.1 & 59.1 \\
+\cline{1-11}
+\bottomrule
+\end{tabular}
+\end{table}
