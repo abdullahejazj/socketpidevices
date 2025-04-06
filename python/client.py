@@ -1,208 +1,334 @@
-import socket
-import time
+#!/usr/bin/env python3
+import asyncio
 import subprocess
-import psutil
-import websocket
-from threading import Thread
+import socket
 import json
-import random
-import os
+import time
+from time import perf_counter
+from threading import Thread, Event
+from datetime import datetime
 
-# Configuration
-SERVER_IP = '10.42.0.1'  # Server IP
-PORTS = {'tcp': 8080, 'ws': 8081}  # Server ports for TCP and WebSocket
-TEST_MODES = [
-    {'type': 'latency', 'durations': [5, 10, 30], 'sizes': [64, 1024, 10240]},
-    {'type': 'throughput', 'durations': [10, 30], 'sizes': [102400, 1048576]},
-    {'type': 'jitter', 'durations': [30], 'sizes': [1024]}
-]
-WARMUP = {'iterations': 100, 'duration': 2000}  # Warmup configurations
-MONITOR_INTERVAL = 500  # Interval for system monitoring in ms
-MAX_LISTENERS = 30  # Max number of listeners for WebSocket
-COOLDOWN_TIME = 10000  # Cooldown time in ms
-TEST_RUNS = 10  # Number of test runs
+# Configuration (matches Node.js version)
+CONFIG = {
+    "SERVER_IP": "10.42.0.1",
+    "PORTS": {"tcp": 8080, "ws": 8081},
+    "TEST_MODES": [
+        # {"type": "latency", "durations": [5, 10, 30], "sizes": [64, 1024, 10240]},
+        {"type": "throughput", "durations": [10, 30], "sizes": [102400, 1048576]},
+        # {"type": "jitter", "durations": [30], "sizes": [1024]}
+    ],
+    "WARMUP": {"iterations": 1, "duration": 2000},
+    "MONITOR_INTERVAL": 500,
+    "MAX_LISTENERS": 30,
+    "COOLDOWN_TIME": 10000,
+    "TEST_RUNS": 10
+}
 
-# System Specs
-def get_system_specs():
+def apply_system_optimizations():
+    """Apply recommended system optimizations for Raspberry Pi"""
     try:
-        return {
-            'cpu': {
-                'model': subprocess.check_output(['cat', '/proc/cpuinfo']).decode().strip(),
-                'cores': psutil.cpu_count(),
-                'freq': subprocess.check_output(['vcgencmd', 'get_config', 'arm_freq']).decode().strip()
-            },
-            'memory': psutil.virtual_memory(),
-            'os': subprocess.check_output(['cat', '/etc/os-release']).decode().strip(),
-            'network': subprocess.check_output(['iwconfig', 'wlan0']).decode().strip()
-        }
-    except Exception as e:
-        print("Error getting system specs:", e)
-        return {}
+        # Increase TCP buffer sizes
+        subprocess.run(["sudo", "sysctl", "-w", "net.core.rmem_max=16777216"], check=True)
+        subprocess.run(["sudo", "sysctl", "-w", "net.core.wmem_max=16777216"], check=True)
+        subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.tcp_rmem='4096 87380 16777216'"], check=True)
+        subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.tcp_wmem='4096 16384 16777216'"], check=True)
+        
+        # Increase connection backlog
+        subprocess.run(["sudo", "sysctl", "-w", "net.core.somaxconn=65535"], check=True)
+        
+        # Raspberry Pi specific optimizations
+        subprocess.run(["sudo", "sysctl", "-w", "vm.swappiness=10"], check=True)
+        subprocess.run(["sudo", "sysctl", "-w", "vm.vfs_cache_pressure=50"], check=True)
+        
+        print("Applied Raspberry Pi optimizations")
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Could not apply all optimizations: {e}")
+
+async def get_system_specs():
+    """Get Raspberry Pi system specs matching Node.js format"""
+    try:
+        cpu_model = subprocess.check_output(
+            'cat /proc/cpuinfo | grep "Model"', shell=True, stderr=subprocess.DEVNULL
+        ).decode().strip() or "Unknown"
+    except Exception:
+        cpu_model = "Unknown"
+    
+    try:
+        cores = subprocess.check_output("nproc", shell=True, stderr=subprocess.DEVNULL
+        ).decode().strip() or "Unknown"
+    except Exception:
+        cores = "Unknown"
+    
+    try:
+        freq = subprocess.check_output(
+            'vcgencmd get_config arm_freq || echo "Unknown"', shell=True, stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        freq = "Unknown"
+    
+    try:
+        memory = subprocess.check_output("free -h", shell=True, stderr=subprocess.DEVNULL
+        ).decode().split("\n")[1].strip()
+    except Exception:
+        memory = "Unknown"
+    
+    try:
+        os_info = subprocess.check_output(
+            'cat /etc/os-release | grep PRETTY_NAME', shell=True, stderr=subprocess.DEVNULL
+        ).decode().strip().strip('"').split('=')[1] or "Unknown"
+    except Exception:
+        os_info = "Unknown"
+    
+    try:
+        network = subprocess.check_output(
+            'iwconfig wlan0 | grep "Bit Rate" || echo "Unknown"', shell=True, stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        network = "Unknown"
+
+    return {
+        "cpu": {"model": cpu_model, "cores": cores, "freq": freq},
+        "memory": memory,
+        "os": os_info,
+        "network": network
+    }
+
+def analyze_monitor_data(monitor_data):
+    """Analyze monitor data to match Node.js format"""
+    def avg(arr):
+        return sum(arr) / len(arr) if arr else 0
+
+    return {
+        "cpuAvg": avg(monitor_data["cpu"]),
+        "memAvg": avg(monitor_data["mem"]),
+        "tempAvg": avg(monitor_data["temp"]),
+        "rxTotal": sum(x["bytes"] for x in monitor_data["net"]["rx"]),
+        "txTotal": sum(x["bytes"] for x in monitor_data["net"]["tx"]),
+        "clockAvg": avg(monitor_data["clock"])
+    }
 
 def start_monitoring():
-    monitor_data = {'cpu': [], 'mem': [], 'net': {'rx': [], 'tx': []}, 'clock': []}
-    
-    def monitor_system():
-        while True:
-            cpu_usage = psutil.cpu_percent()
-            memory_usage = psutil.virtual_memory().percent
-            net_io = psutil.net_io_counters()
-            
-            monitor_data['cpu'].append(cpu_usage)
-            monitor_data['mem'].append(memory_usage)
-            monitor_data['net']['rx'].append(net_io.bytes_recv)
-            monitor_data['net']['tx'].append(net_io.bytes_sent)
-            time.sleep(MONITOR_INTERVAL / 1000)
-    
-    monitor_thread = Thread(target=monitor_system, daemon=True)
+    """System monitoring for Raspberry Pi"""
+    monitor_data = {
+        "timestamps": [],
+        "cpu": [],
+        "mem": [],
+        "temp": [],
+        "net": {"rx": [], "tx": []},
+        "clock": []
+    }
+    stop_event = Event()
+
+    def monitor_loop():
+        while not stop_event.is_set():
+            try:
+                # Timestamp
+                timestamp = int(time.time() * 1000)
+                monitor_data["timestamps"].append(timestamp)
+
+                # CPU and Memory (Raspberry Pi compatible)
+                cmd = 'top -bn1 | awk \'/Cpu\\(s\\):/ {printf "%.1f", 100-$8}\' && free | awk \'/Mem:/ {printf " %.1f", $3/$2*100}\''
+                output = subprocess.check_output(cmd, shell=True).decode().split()
+                monitor_data["cpu"].append(float(output[0]))
+                monitor_data["mem"].append(float(output[1]))
+                
+                # Temperature (Raspberry Pi specific)
+                temp = float(subprocess.check_output(
+                    'vcgencmd measure_temp | cut -d= -f2 | cut -d\'\\\'\' -f1',
+                    shell=True
+                ).decode().strip())
+                monitor_data["temp"].append(temp)
+                
+                # Clock (Raspberry Pi specific)
+                clock = int(subprocess.check_output(
+                    'vcgencmd measure_clock arm',
+                    shell=True
+                ).decode().split('=')[1].strip())
+                monitor_data["clock"].append(clock)
+                
+                # Network (Raspberry Pi compatible)
+                net_stats = subprocess.check_output(
+                    "cat /proc/net/dev | grep -E 'wlan0|eth0' | awk '{print $2,$3,$10,$11}'",
+                    shell=True
+                ).decode().split()
+                if len(net_stats) >= 4:
+                    monitor_data["net"]["rx"].append({
+                        "bytes": int(net_stats[0]),
+                        "packets": int(net_stats[1])
+                    })
+                    monitor_data["net"]["tx"].append({
+                        "bytes": int(net_stats[2]),
+                        "packets": int(net_stats[3])
+                    })
+                else:
+                    monitor_data["net"]["rx"].append({"bytes": 0, "packets": 0})
+                    monitor_data["net"]["tx"].append({"bytes": 0, "packets": 0})
+
+                time.sleep(CONFIG["MONITOR_INTERVAL"] / 1000)
+            except Exception as e:
+                print(f"Monitoring error: {e}")
+                time.sleep(1)
+
+    monitor_thread = Thread(target=monitor_loop)
     monitor_thread.start()
 
-# Connect to TCP server
-def connect_tcp():
-    tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp_socket.connect((SERVER_IP, PORTS['tcp']))
-    return tcp_socket
+    def stop_monitoring():
+        stop_event.set()
+        monitor_thread.join()
 
-# WebSocket callback functions
-def on_message(ws, message):
-    print(f"Received message: {message}")
-    # Simulate data processing
-    ws.send(message)
+    return monitor_data, stop_monitoring
 
-def on_error(ws, error):
-    print(f"Error: {error}")
+async def warm_up():
+    """Warm-up period matching Node.js implementation"""
+    print(f"Starting warm-up for {CONFIG['WARMUP']['iterations']} iterations")
+    warm_up_start = perf_counter()
+    
+    for i in range(CONFIG["WARMUP"]["iterations"]):
+        iter_start = perf_counter()
+        await asyncio.sleep(CONFIG["WARMUP"]["duration"] / 1000)
+        print(f"Warm-up iteration {i+1} completed in {(perf_counter() - iter_start)*1000:.2f} ms")
+    
+    print(f"Warm-up completed in {(perf_counter() - warm_up_start)*1000:.2f} ms")
 
-def on_close(ws, close_status_code, close_msg):
-    print("### closed ###")
+async def save_results(results, test_number):
+    """Save results in same format as Node.js"""
+    result_file = f"test-{test_number}.json"
+    with open(result_file, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"Results saved to {result_file}")
 
-def on_open(ws):
-    print("### opened ###")
+async def latency_iteration(params):
+    """Latency test with proper socket handling"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    sock.settimeout(5.0)
+    
+    try:
+        sock.connect((CONFIG["SERVER_IP"], CONFIG["PORTS"]["tcp"]))
+        start_time = perf_counter()
+        sock.sendall(bytearray(params["messageSize"]))
+        
+        # Wait for echo
+        received = 0
+        while received < params["messageSize"]:
+            data = sock.recv(params["messageSize"] - received)
+            if not data:
+                break
+            received += len(data)
+        
+        return (perf_counter() - start_time) * 1000  # Convert to ms
+    except Exception as e:
+        print(f"Latency test error: {e}")
+        return None
+    finally:
+        sock.close()
 
-# Connect to WebSocket server
-def connect_ws():
-    ws = websocket.WebSocketApp(f"ws://{SERVER_IP}:{PORTS['ws']}",
-                                on_message=on_message,
-                                on_error=on_error,
-                                on_close=on_close)
-    ws.on_open = on_open
-    return ws
+async def throughput_iteration(params):
+    """Throughput test matching Node.js implementation"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    sock.settimeout(10.0)
+    
+    try:
+        sock.connect((CONFIG["SERVER_IP"], CONFIG["PORTS"]["tcp"]))
+        buffer = bytearray(params["messageSize"])
+        bytes_sent = 0
+        start_time = perf_counter()
+        
+        for _ in range(1000):  # Match Node.js 1000 iterations
+            sock.sendall(buffer)
+            bytes_sent += len(buffer)
+        
+        elapsed = perf_counter() - start_time
+        return bytes_sent / elapsed if elapsed > 0 else 0
+    except Exception as e:
+        print(f"Throughput test error: {e}")
+        return None
+    finally:
+        sock.close()
 
-# Perform latency test
-def test_latency(socket_type, duration, size):
-    print(f"Starting {socket_type} latency test for {duration}s with message size {size} bytes")
-    start_time = time.time()
-    total_latency = 0
-    count = 0
+async def run_test(params, monitor_data):
+    """Run a single test with proper error handling"""
+    test_data = {
+        "timestamps": [],
+        "latencies": [],
+        "throughputs": []
+    }
+    
+    start_time = perf_counter()
+    try:
+        while (perf_counter() - start_time) < params["durationSec"]:
+            iter_time = perf_counter()
+            
+            if params["type"] == "throughput":
+                throughput = await throughput_iteration(params)
+                if throughput is not None:
+                    test_data["throughputs"].append(throughput)
+            else:  # latency or jitter
+                latency = await latency_iteration(params)
+                if latency is not None:
+                    test_data["latencies"].append(latency)
+            
+            test_data["timestamps"].append(int(perf_counter() * 1000))
+    except Exception as e:
+        print(f"Test error: {e}")
+    
+    return {
+        **params,
+        "metrics": analyze_monitor_data(monitor_data),
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "testData": test_data
+    }
 
-    if socket_type == 'tcp':
-        sock = connect_tcp()
-    else:
-        ws = connect_ws()
-        ws.run_forever()
-
-    while time.time() - start_time < duration:
-        if socket_type == 'tcp':
-            msg = random.randbytes(size)
-            start = time.time()
-            sock.send(msg)
-            sock.recv(size)
-            total_latency += time.time() - start
-            count += 1
-        elif socket_type == 'ws':
-            msg = random.randbytes(size)
-            start = time.time()
-            ws.send(msg)
-            ws.recv()
-            total_latency += time.time() - start
-            count += 1
-
-    avg_latency = total_latency / count if count else 0
-    print(f"{socket_type} latency test completed: Average latency = {avg_latency:.4f} seconds")
-    return avg_latency
-
-# Perform throughput test
-def test_throughput(socket_type, duration, size):
-    print(f"Starting {socket_type} throughput test for {duration}s with message size {size} bytes")
-    start_time = time.time()
-    total_bytes = 0
-    count = 0
-
-    if socket_type == 'tcp':
-        sock = connect_tcp()
-    else:
-        ws = connect_ws()
-        ws.run_forever()
-
-    while time.time() - start_time < duration:
-        if socket_type == 'tcp':
-            msg = random.randbytes(size)
-            sock.send(msg)
-            total_bytes += len(msg)
-            count += 1
-        elif socket_type == 'ws':
-            msg = random.randbytes(size)
-            ws.send(msg)
-            total_bytes += len(msg)
-            count += 1
-
-    throughput = total_bytes / (time.time() - start_time)  # bytes per second
-    print(f"{socket_type} throughput test completed: Throughput = {throughput:.2f} bytes/sec")
-    return throughput
-
-# Perform jitter test
-def test_jitter(socket_type, duration, size):
-    print(f"Starting {socket_type} jitter test for {duration}s with message size {size} bytes")
-    start_time = time.time()
-    last_time = None
-    jitter = []
-
-    if socket_type == 'tcp':
-        sock = connect_tcp()
-    else:
-        ws = connect_ws()
-        ws.run_forever()
-
-    while time.time() - start_time < duration:
-        if socket_type == 'tcp':
-            msg = random.randbytes(size)
-            sock.send(msg)
-            response_time = time.time()
-            if last_time is not None:
-                jitter.append(response_time - last_time)
-            last_time = response_time
-        elif socket_type == 'ws':
-            msg = random.randbytes(size)
-            ws.send(msg)
-            response_time = time.time()
-            if last_time is not None:
-                jitter.append(response_time - last_time)
-            last_time = response_time
-
-    avg_jitter = sum(jitter) / len(jitter) if jitter else 0
-    print(f"{socket_type} jitter test completed: Average jitter = {avg_jitter:.4f} seconds")
-    return avg_jitter
-
-# Running tests
-def run_tests():
-    print("Starting performance tests...")
-    results = {}
-
-    for mode in TEST_MODES:
-        for duration in mode['durations']:
-            for size in mode['sizes']:
-                for socket_type in ['tcp', 'ws']:
-                    if mode['type'] == 'latency':
-                        result = test_latency(socket_type, duration, size)
-                    elif mode['type'] == 'throughput':
-                        result = test_throughput(socket_type, duration, size)
-                    elif mode['type'] == 'jitter':
-                        result = test_jitter(socket_type, duration, size)
-
-                    results[f"{socket_type}_{mode['type']}_{duration}s_{size}bytes"] = result
-                time.sleep(1)  # Sleep between test runs
-
-    print("Test results:", json.dumps(results, indent=2))
+async def run_all_tests():
+    """Main test execution matching Node.js workflow"""
+    apply_system_optimizations()
+    results = {
+        "system": await get_system_specs(),
+        "tests": []
+    }
+    monitor_data, stop_monitoring = start_monitoring()
+    
+    try:
+        await warm_up()
+        
+        for test_run in range(1, CONFIG["TEST_RUNS"] + 1):
+            print(f"\n=== Test Run {test_run}/{CONFIG['TEST_RUNS']} ===")
+            
+            if test_run > 1:
+                print(f"Cooldown for {CONFIG['COOLDOWN_TIME']/1000} seconds...")
+                await asyncio.sleep(CONFIG["COOLDOWN_TIME"] / 1000)
+            
+            for mode in CONFIG["TEST_MODES"]:
+                for duration in mode["durations"]:
+                    for size in mode["sizes"]:
+                        params = {
+                            "type": mode["type"],
+                            "durationSec": duration,
+                            "messageSize": size
+                        }
+                        print(f"Running {params['type']} test (size={size}, duration={duration}s)")
+                        
+                        try:
+                            result = await run_test(params, monitor_data)
+                            if result:
+                                results["tests"].append(result)
+                        except Exception as e:
+                            print(f"Test failed: {e}")
+            
+            await save_results(results, test_run)
+    except KeyboardInterrupt:
+        print("\nTests interrupted")
+    except Exception as e:
+        print(f"Fatal error: {e}")
+    finally:
+        stop_monitoring()
+        print("\nAll tests completed!")
 
 if __name__ == "__main__":
-    start_monitoring()
-    run_tests()
+    try:
+        asyncio.run(run_all_tests())
+    except KeyboardInterrupt:
+        print("\nTests interrupted")
+    except Exception as e:
+        print(f"Fatal error: {e}")

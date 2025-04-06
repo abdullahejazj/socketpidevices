@@ -1,0 +1,102 @@
+{
+  "system": {
+    "cpu": {
+      "model": "Unknown",
+      "cores": "Unknown",
+      "freq": "Unknown"
+    },
+    "memory": "Unknown",
+    "os": "Unknown",
+    "network": "Unknown"
+  },
+  "tests": [
+    {
+      "type": "throughput",
+      "durationSec": 10,
+      "messageSize": 102400,
+      "metrics": {
+        "cpuAvg": 0,
+        "memAvg": 0,
+        "tempAvg": 0,
+        "rxTotal": 0,
+        "txTotal": 0,
+        "clockAvg": 0
+      },
+      "timestamp": "2025-04-06T01:14:16.957908Z",
+      "testData": {
+        "timestamps": [
+          208025240
+        ],
+        "latencies": [],
+        "throughputs": []
+      }
+    },
+    {
+      "type": "throughput",
+      "durationSec": 10,
+      "messageSize": 1048576,
+      "metrics": {
+        "cpuAvg": 0,
+        "memAvg": 0,
+        "tempAvg": 0,
+        "rxTotal": 0,
+        "txTotal": 0,
+        "clockAvg": 0
+      },
+      "timestamp": "2025-04-06T01:14:26.960126Z",
+      "testData": {
+        "timestamps": [
+          208035243
+        ],
+        "latencies": [],
+        "throughputs": []
+      }
+    },
+    {
+      "type": "throughput",
+      "durationSec": 30,
+      "messageSize": 102400,
+      "metrics": {
+        "cpuAvg": 0,
+        "memAvg": 0,
+        "tempAvg": 0,
+        "rxTotal": 0,
+        "txTotal": 0,
+        "clockAvg": 0
+      },
+      "timestamp": "2025-04-06T01:14:56.965294Z",
+      "testData": {
+        "timestamps": [
+          208045245,
+          208055247,
+          208065249
+        ],
+        "latencies": [],
+        "throughputs": []
+      }
+    },
+    {
+      "type": "throughput",
+      "durationSec": 30,
+      "messageSize": 1048576,
+      "metrics": {
+        "cpuAvg": 0,
+        "memAvg": 0,
+        "tempAvg": 0,
+        "rxTotal": 0,
+        "txTotal": 0,
+        "clockAvg": 0
+      },
+      "timestamp": "2025-04-06T01:15:26.971168Z",
+      "testData": {
+        "timestamps": [
+          208075251,
+          208085253,
+          208095255
+        ],
+        "latencies": [],
+        "throughputs": []
+      }
+    }
+  ]
+}
