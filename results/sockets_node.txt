@@ -1,0 +1,9 @@
+---- Run 1 ----
+
+Testing Node.js server...
+Success rate: 10/100
+Average latency: 6.63ms
+
+Testing Python server...
+Success rate: 10/100
+Average latency: 2.88ms

@@ -4,6 +4,35 @@ set -e
 RESULTS_DIR="./results"
 mkdir -p "$RESULTS_DIR"
 RUNS=10
+SYSINFO_FILE="$RESULTS_DIR/system_info.txt"
+
+# System Information Collection
+collect_system_info() {
+    echo "=== System Information ===" > "$SYSINFO_FILE"
+    echo "Timestamp: $(date)" >> "$SYSINFO_FILE"
+    echo -e "\n[OS Information]" >> "$SYSINFO_FILE"
+    cat /etc/os-release >> "$SYSINFO_FILE"
+    
+    echo -e "\n[Hardware Information]" >> "$SYSINFO_FILE"
+    echo "CPU: $(cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d':' -f2 | xargs)" >> "$SYSINFO_FILE"
+    echo "Cores: $(nproc)" >> "$SYSINFO_FILE"
+    echo "Architecture: $(uname -m)" >> "$SYSINFO_FILE"
+    echo "Kernel: $(uname -r)" >> "$SYSINFO_FILE"
+    
+    echo -e "\n[Memory Information]" >> "$SYSINFO_FILE"
+    free -h >> "$SYSINFO_FILE"
+    
+    echo -e "\n[Disk Information]" >> "$SYSINFO_FILE"
+    df -h >> "$SYSINFO_FILE"
+    
+    echo -e "\n[Raspberry Pi Specific]" >> "$SYSINFO_FILE"
+    if command -v vcgencmd &> /dev/null; then
+        echo "Temperature: $(vcgencmd measure_temp)" >> "$SYSINFO_FILE"
+        echo "Clock speed: $(vcgencmd measure_clock arm)" >> "$SYSINFO_FILE"
+        echo "Voltage: $(vcgencmd measure_volts)" >> "$SYSINFO_FILE"
+        echo "Throttle status: $(vcgencmd get_throttled)" >> "$SYSINFO_FILE"
+    fi
+}
 
 # Use gtime if available (from brew install gnu-time)
 if command -v gtime &> /dev/null; then
@@ -38,6 +67,9 @@ log_run() {
         echo "" | tee -a "$output_file"
     done
 }
+
+# Collect system info first
+collect_system_info
 
 # --------------------------
 # CPU-Bound Tests
@@ -123,3 +155,4 @@ for ((i=1; i<=RUNS; i++)); do
 done
 
 echo "✅ Benchmark completed! Results saved to $RESULTS_DIR"
+echo "System information saved to $SYSINFO_FILE"
