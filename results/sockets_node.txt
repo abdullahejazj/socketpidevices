@@ -1,0 +1,18 @@
+---- Run 1 ----
+
+Testing Node.js server...
+Success rate: 10/100
+Average latency: 4.68ms
+
+Testing Python server...
+Test 1 failed (ws://10.120.233.229:5001): [Errno 61] Connect call failed ('10.120.233.229', 5001)
+Test 2 failed (ws://10.120.233.229:5001): [Errno 61] Connect call failed ('10.120.233.229', 5001)
+Test 3 failed (ws://10.120.233.229:5001): [Errno 61] Connect call failed ('10.120.233.229', 5001)
+Test 4 failed (ws://10.120.233.229:5001): [Errno 61] Connect call failed ('10.120.233.229', 5001)
+Test 5 failed (ws://10.120.233.229:5001): [Errno 61] Connect call failed ('10.120.233.229', 5001)
+Test 6 failed (ws://10.120.233.229:5001): [Errno 61] Connect call failed ('10.120.233.229', 5001)
+Test 7 failed (ws://10.120.233.229:5001): [Errno 61] Connect call failed ('10.120.233.229', 5001)
+Test 8 failed (ws://10.120.233.229:5001): [Errno 61] Connect call failed ('10.120.233.229', 5001)
+Test 9 failed (ws://10.120.233.229:5001): [Errno 61] Connect call failed ('10.120.233.229', 5001)
+Test 10 failed (ws://10.120.233.229:5001): [Errno 61] Connect call failed ('10.120.233.229', 5001)
+All connection attempts failed
