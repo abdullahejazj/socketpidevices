@@ -1,0 +1,256 @@
+=== Raspberry Pi 4 Benchmark - Tue Apr  8 13:00:13 +08 2025 ===
+Benchmark runs: 1
+
+[SYSTEM INFORMATION]
+OS: 
+Kernel: 21.6.0
+Architecture: x86_64
+CPU: 
+Cores: 
+Memory:  total
+Disk: 466Gi total
+Current CPU freq:  MHz
+Current temp: 
+Voltage: 
+Throttle status: 
+
+[TEST: Node.js Fibonacci]
+Command: node cpu/fib.js
+
+Run 1:
+
+[PERFORMANCE DURING Node.js Fibonacci Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:00:13                       
+13:00:14                       
+Time: 1.61s
+Duration:  seconds
+Exit code: 0
+
+[TEST: Python Fibonacci]
+Command: python3 cpu/fib.py
+
+Run 1:
+
+[PERFORMANCE DURING Python Fibonacci Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:00:15                       
+13:00:16                       
+13:00:17                       
+13:00:18                       
+13:00:19                       
+Time: 23.343s
+Duration:  seconds
+Exit code: 0
+
+[TEST: Node.js Pi Calculation]
+Command: node cpu/pi.js
+
+Run 1:
+
+[PERFORMANCE DURING Node.js Pi Calculation Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:00:38                       
+Time: 0.384s
+Duration:  seconds
+Exit code: 0
+
+[TEST: Python Pi Calculation]
+Command: python3 cpu/pi.py
+
+Run 1:
+
+[PERFORMANCE DURING Python Pi Calculation Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:00:39                       
+13:00:40                       
+13:00:41                       
+13:00:42                       
+13:00:43                       
+Time: 4.678s
+Duration:  seconds
+Exit code: 0
+
+[TEST: HTTP Node.js Server - Run 1]
+Server running
+
+[PERFORMANCE DURING HTTP Node.js Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:00:49                       
+13:00:50                       
+13:00:51                       
+13:00:52                       
+13:00:53                       
+Running 10s test @ http://localhost:3000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    71.24ms  185.81ms   1.99s    95.35%
+    Req/Sec   813.72    372.21     1.44k    64.80%
+  31983 requests in 10.08s, 7.05MB read
+  Socket errors: connect 0, read 0, write 0, timeout 1
+Requests/sec:   3172.23
+Transfer/sec:    715.61KB
+
+[TEST: HTTP Python Server - Run 1]
+ * Serving Flask app 'http_server'
+ * Debug mode: off
+Address already in use
+Port 5000 is in use by another program. Either identify and stop that program, or start the server with a different port.
+On macOS, try disabling the 'AirPlay Receiver' service from System Preferences -> General -> AirDrop & Handoff.
+
+[PERFORMANCE DURING HTTP Python Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:01:10                       
+13:01:11                       
+13:01:12                       
+13:01:13                       
+13:01:14                       
+Running 10s test @ http://localhost:5000
+  4 threads and 100 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   148.29ms  109.00ms 750.53ms   88.41%
+    Req/Sec   202.76     90.84   420.00     69.84%
+  7601 requests in 10.09s, 1.28MB read
+Requests/sec:    753.28
+Transfer/sec:    130.24KB
+./run_benchmarksmac.sh: line 143: kill: (71849) - No such process
+
+[TEST: Node.js File I/O]
+Command: node io/file_io.js
+
+Run 1:
+
+[PERFORMANCE DURING Node.js File I/O Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:01:21                       
+13:01:22                       
+13:01:23                       
+13:01:25                       
+13:01:26                       
+Time: 7.984061422s
+Duration:  seconds
+Exit code: 0
+
+[TEST: Python File I/O]
+Command: python3 io/file_io.py
+
+Run 1:
+
+[PERFORMANCE DURING Python File I/O Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:01:29                       
+13:01:30                       
+13:01:31                       
+Time: 2.926s
+Duration:  seconds
+Exit code: 0
+
+[TEST: Node.js Memory Array]
+Command: node memory/array_js.js
+
+Run 1:
+
+[PERFORMANCE DURING Node.js Memory Array Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:01:32                       
+13:01:33                       
+Time: 1.284s
+Duration:  seconds
+Exit code: 0
+
+[TEST: Python Memory Array]
+Command: python3 memory/array_py.py
+
+Run 1:
+
+[PERFORMANCE DURING Python Memory Array Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:01:33                       
+13:01:35                       
+13:01:36                       
+Time: 3.095s
+13:01:37                       
+Duration:  seconds
+Exit code: 0
+
+[TEST: Node.js Socket Server - Run 1]
+WebSocket server running on ws://localhost:3001
+
+[PERFORMANCE DURING Socket Node.js Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:01:40                       
+Client connected
+Client connected
+Client connected
+Client connected
+Client connected
+Client connected
+Client connected
+Client connected
+Client connected
+Client connected
+
+Testing Node.js server...
+Success rate: 10/100
+Average latency: 8.88ms
+
+Testing Python server...
+Success rate: 10/100
+Average latency: 3.86ms
+
+[TEST: Python Socket Server - Run 1]
+Traceback (most recent call last):
+  File "/Users/ahmed/Desktop/experiment /sockets/socket_server.py", line 15, in <module>
+    asyncio.run(main())
+  File "/opt/anaconda3/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/Users/ahmed/Desktop/experiment /sockets/socket_server.py", line 11, in main
+    async with websockets.serve(handler, "0.0.0.0", 5001):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/lib/python3.12/site-packages/websockets/asyncio/server.py", line 813, in __aenter__
+    return await self
+           ^^^^^^^^^^
+  File "/opt/anaconda3/lib/python3.12/site-packages/websockets/asyncio/server.py", line 831, in __await_impl__
+    server = await self.create_server
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/anaconda3/lib/python3.12/asyncio/base_events.py", line 1571, in create_server
+    raise OSError(err.errno, msg) from None
+OSError: [Errno 48] error while attempting to bind on address ('0.0.0.0', 5001): [errno 48] address already in use
+
+[PERFORMANCE DURING Socket Python Run 1]
+Timestamp     CPU%  Mem%  Temp    Throttled
+13:01:52                       
+13:01:53                       
+13:01:54                       
+13:01:55                       
+13:01:56                       
+
+Testing Node.js server...
+Test 1 failed (ws://10.120.233.229:3001): [Errno 61] Connect call failed ('10.120.233.229', 3001)
+Test 2 failed (ws://10.120.233.229:3001): [Errno 61] Connect call failed ('10.120.233.229', 3001)
+Test 3 failed (ws://10.120.233.229:3001): [Errno 61] Connect call failed ('10.120.233.229', 3001)
+Test 4 failed (ws://10.120.233.229:3001): [Errno 61] Connect call failed ('10.120.233.229', 3001)
+Test 5 failed (ws://10.120.233.229:3001): [Errno 61] Connect call failed ('10.120.233.229', 3001)
+Test 6 failed (ws://10.120.233.229:3001): [Errno 61] Connect call failed ('10.120.233.229', 3001)
+Test 7 failed (ws://10.120.233.229:3001): [Errno 61] Connect call failed ('10.120.233.229', 3001)
+Test 8 failed (ws://10.120.233.229:3001): [Errno 61] Connect call failed ('10.120.233.229', 3001)
+Test 9 failed (ws://10.120.233.229:3001): [Errno 61] Connect call failed ('10.120.233.229', 3001)
+Test 10 failed (ws://10.120.233.229:3001): [Errno 61] Connect call failed ('10.120.233.229', 3001)
+All connection attempts failed
+
+Testing Python server...
+Success rate: 10/100
+Average latency: 2.94ms
+./run_benchmarksmac.sh: line 196: kill: (72267) - No such process
+
+=== BENCHMARK COMPLETED ===
+
+[TEST CLEANUP]
+Cleanup completed
